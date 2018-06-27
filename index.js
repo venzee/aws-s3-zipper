@@ -1,24 +1,16 @@
 var assert = require('assert');
 var archiver = require('archiver');
 var async = require('async');
-var AWS = require('aws-sdk');
 var fs = require('fs');
 var s3 = require('s3');
 
-function S3Zipper(awsConfig) {
+function S3Zipper(createS3Client, {region, bucketName}) {
     var self = this
-    AWS.config.getCredentials(function (err) {
-      if (err) {
-        assert.ok(awsConfig, 'AWS S3 options must be defined.');
-        assert.notEqual(awsConfig.accessKeyId, undefined, 'Requires S3 AWS Key.');
-        assert.notEqual(awsConfig.secretAccessKey, undefined, 'Requires S3 AWS Secret');
-        assert.notEqual(awsConfig.region, undefined, 'Requires AWS S3 region.');
-        assert.notEqual(awsConfig.bucket, undefined, 'Requires AWS S3 bucket.');
-        self.init(awsConfig);
-      } else {
-        self.init(awsConfig)
-      }
-    })
+
+    assert(createS3Client, 'missing S3 Client decorator');
+    assert(bucketName, 'missing string value for bucketName');
+
+    self.init(createS3Client, {region, bucketName})
 }
 
 
@@ -28,32 +20,16 @@ function listObjectInner() {
 
 
 S3Zipper.prototype = {
-    init: function (awsConfig) {
-        this.awsConfig = awsConfig;
+    init: function (createS3Client, s3Config) {
+        this.s3Config = s3Config;
         var self = this
-        AWS.config.getCredentials(function (err) {
 
-            if (err) {
-                AWS.config.update({
-                    accessKeyId: awsConfig.accessKeyId,
-                    secretAccessKey: awsConfig.secretAccessKey,
-                    region: awsConfig.region
-                });
+        self.s3bucket = createS3Client({
+            region: s3Config.region,
+            params: {
+                Bucket: self.s3Config.bucketName
             }
-
-            if (awsConfig.endpoint) {
-                AWS.config.update({
-                    endpoint: awsConfig.endpoint
-                });
-            }
-
-            self.s3bucket = new AWS.S3({
-                params: {
-                    Bucket: self.awsConfig.bucket
-                }
-            });
-
-        })
+        });
 
     }
     , filterOutFiles: function (fileObj) {
@@ -92,7 +68,7 @@ S3Zipper.prototype = {
 
 
         var bucketParams = {
-            Bucket: this.awsConfig.bucket, /* required */
+            Bucket: this.s3Config.bucketName, /* required */
             Delimiter: "/",
             Prefix: params.folderName + "/"
         };
@@ -197,7 +173,7 @@ S3Zipper.prototype = {
                 var files = clearedFiles.files;
                 console.log("files", files);
                 async.map(files, function (f, callback) {
-                    t.s3bucket.getObject({Bucket: t.awsConfig.bucket, Key: f.Key}, function (err, data) {
+                    t.s3bucket.getObject({Bucket: t.s3Config.bucketName, Key: f.Key}, function (err, data) {
                         if (err)
                             callback(err);
                         else {
@@ -245,7 +221,7 @@ S3Zipper.prototype = {
         var readStream = fs.createReadStream(localFileName);//tempFile
 
         this.s3bucket.upload({
-                Bucket: this.awsConfig.bucket
+                Bucket: this.s3Config.bucketName
                 , Key: s3ZipFileName
                 , ContentType: "application/zip"
                 , Body: readStream
